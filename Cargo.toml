@@ -1,0 +1,10 @@
+[package]
+name = "unstacked"
+version = "0.1.0"
+edition = "2024"
+description = "Lock-free, no-std concurrent stack for Rust"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
