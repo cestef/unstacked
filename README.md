@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="assets/banner.png" alt="unstacked banner" />
+    <img src="./assets/banner.png" alt="unstacked banner" />
 </p>
 
 Concurrent, lock-free, `no-std` stack implementation in Rust.
