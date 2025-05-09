@@ -52,6 +52,9 @@ const TAG_MASK: usize = 0xFFFF000000000000;
 /// stack.push(1);
 /// assert_eq!(stack.pop(), Some(1));
 /// assert_eq!(stack.pop(), None);
+/// stack.push(2);
+/// assert_eq!(stack.peek(), Some(2).as_ref());
+/// assert!(!stack.is_empty())
 /// ```
 impl<T> Stack<T> {
     pub fn new() -> Self {
