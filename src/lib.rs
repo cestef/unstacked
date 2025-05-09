@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 use core::marker::PhantomData;
 use core::ptr;
@@ -45,7 +45,14 @@ pub struct Stack<T> {
 
 const PTR_MASK: usize = 0x0000FFFFFFFFFFFF;
 const TAG_MASK: usize = 0xFFFF000000000000;
-
+/// # Example
+/// ```
+/// use unstacked::Stack;
+/// let stack: Stack<i32> = Stack::new();
+/// stack.push(1);
+/// assert_eq!(stack.pop(), Some(1));
+/// assert_eq!(stack.pop(), None);
+/// ```
 impl<T> Stack<T> {
     pub fn new() -> Self {
         Stack {
