@@ -45,6 +45,8 @@ pub struct Stack<T> {
 
 const PTR_MASK: usize = 0x0000FFFFFFFFFFFF;
 const TAG_MASK: usize = 0xFFFF000000000000;
+const TAG_SHIFT_BITS: usize = 48;
+
 /// # Example
 /// ```
 /// use unstacked::Stack;
@@ -65,7 +67,7 @@ impl<T> Stack<T> {
     }
     fn encode(tagged: TaggedPtr<T>) -> usize {
         let ptr_bits = tagged.ptr as usize;
-        let tag_shifted = (tagged.tag << 48) & TAG_MASK;
+        let tag_shifted = (tagged.tag << TAG_SHIFT_BITS) & TAG_MASK;
 
         let ptr_masked = ptr_bits & PTR_MASK;
 
@@ -75,7 +77,7 @@ impl<T> Stack<T> {
     fn decode(value: usize) -> TaggedPtr<T> {
         let ptr = (value & PTR_MASK) as *mut Node<T>;
 
-        let tag = (value & TAG_MASK) >> 48;
+        let tag = (value & TAG_MASK) >> TAG_SHIFT_BITS;
 
         TaggedPtr::new(ptr, tag)
     }
@@ -105,7 +107,7 @@ impl<T> Stack<T> {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => break,
-                Err(_) => continue,
+                Err(_) => core::hint::spin_loop(),
             }
         }
     }
@@ -134,7 +136,7 @@ impl<T> Stack<T> {
                     let node = unsafe { Box::from_raw(current_head.ptr) };
                     return Some(node.data);
                 }
-                Err(_) => continue,
+                Err(_) => core::hint::spin_loop(),
             }
         }
     }
