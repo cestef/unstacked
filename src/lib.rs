@@ -8,7 +8,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 #[derive(Clone, Copy)]
-struct TaggedPtr<T> {
+pub struct TaggedPtr<T> {
     ptr: *mut Node<T>,
     tag: usize,
 }
@@ -30,6 +30,23 @@ impl<T> TaggedPtr<T> {
 
     const fn is_null(&self) -> bool {
         self.ptr.is_null()
+    }
+
+    fn encode(&self) -> usize {
+        let ptr_bits = self.ptr as usize;
+        let tag_shifted = (self.tag << TAG_SHIFT_BITS) & TAG_MASK;
+
+        let ptr_masked = ptr_bits & PTR_MASK;
+
+        ptr_masked | tag_shifted
+    }
+
+    const fn decode(value: usize) -> Self {
+        let ptr = (value & PTR_MASK) as *mut Node<T>;
+
+        let tag = (value & TAG_MASK) >> TAG_SHIFT_BITS;
+
+        Self::new(ptr, tag)
     }
 }
 
@@ -61,25 +78,9 @@ const TAG_SHIFT_BITS: usize = 48;
 impl<T> Stack<T> {
     pub fn new() -> Self {
         Stack {
-            head: AtomicUsize::new(Self::encode(TaggedPtr::null())),
+            head: AtomicUsize::new(TaggedPtr::<T>::null().encode()),
             _marker: PhantomData,
         }
-    }
-    fn encode(tagged: TaggedPtr<T>) -> usize {
-        let ptr_bits = tagged.ptr as usize;
-        let tag_shifted = (tagged.tag << TAG_SHIFT_BITS) & TAG_MASK;
-
-        let ptr_masked = ptr_bits & PTR_MASK;
-
-        ptr_masked | tag_shifted
-    }
-
-    fn decode(value: usize) -> TaggedPtr<T> {
-        let ptr = (value & PTR_MASK) as *mut Node<T>;
-
-        let tag = (value & TAG_MASK) >> TAG_SHIFT_BITS;
-
-        TaggedPtr::new(ptr, tag)
     }
 
     pub fn push(&self, data: T) {
@@ -90,7 +91,7 @@ impl<T> Stack<T> {
 
         loop {
             let head_bits = self.head.load(Ordering::Acquire);
-            let current_head = Self::decode(head_bits);
+            let current_head = TaggedPtr::decode(head_bits);
             let current_head_tag = current_head.tag;
 
             unsafe {
@@ -98,7 +99,7 @@ impl<T> Stack<T> {
             }
 
             let new_tagged = TaggedPtr::new(new_node, current_head_tag + 1);
-            let new_bits = Self::encode(new_tagged);
+            let new_bits = new_tagged.encode();
 
             match self.head.compare_exchange(
                 head_bits,
@@ -115,7 +116,7 @@ impl<T> Stack<T> {
     pub fn pop(&self) -> Option<T> {
         loop {
             let head_bits = self.head.load(Ordering::Acquire);
-            let current_head = Self::decode(head_bits);
+            let current_head = TaggedPtr::decode(head_bits);
 
             if current_head.is_null() {
                 return None;
@@ -124,7 +125,7 @@ impl<T> Stack<T> {
             let next = unsafe { &(*current_head.ptr).next };
 
             let new_tagged = TaggedPtr::new(next.ptr, current_head.tag + 1);
-            let new_bits = Self::encode(new_tagged);
+            let new_bits = new_tagged.encode();
 
             match self.head.compare_exchange(
                 head_bits,
@@ -142,7 +143,7 @@ impl<T> Stack<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        Self::decode(self.head.load(Ordering::Acquire)).is_null()
+        TaggedPtr::<T>::decode(self.head.load(Ordering::Acquire)).is_null()
     }
 
     pub fn clear(&self) {
@@ -151,7 +152,7 @@ impl<T> Stack<T> {
 
     pub fn peek(&self) -> Option<&T> {
         let head_bits = self.head.load(Ordering::Acquire);
-        let current_head = Self::decode(head_bits);
+        let current_head = TaggedPtr::decode(head_bits);
 
         if current_head.is_null() {
             None
@@ -167,7 +168,7 @@ where
 {
     pub fn len(&self) -> usize {
         let mut count = 0;
-        let mut current = Self::decode(self.head.load(Ordering::Acquire));
+        let mut current = TaggedPtr::<T>::decode(self.head.load(Ordering::Acquire));
 
         while !current.is_null() {
             count += 1;
@@ -390,8 +391,8 @@ mod tests {
     #[test]
     fn test_encode_decode() {
         let null_ptr = TaggedPtr::<i32>::null();
-        let encoded = Stack::<i32>::encode(null_ptr);
-        let decoded = Stack::<i32>::decode(encoded);
+        let encoded = null_ptr.encode();
+        let decoded = TaggedPtr::<i32>::decode(encoded);
 
         assert!(decoded.is_null());
         assert_eq!(decoded.tag, 0);
@@ -402,8 +403,8 @@ mod tests {
         }));
 
         let tagged = TaggedPtr::new(node, 42);
-        let encoded = Stack::<i32>::encode(tagged);
-        let decoded = Stack::<i32>::decode(encoded);
+        let encoded = tagged.encode();
+        let decoded = TaggedPtr::<i32>::decode(encoded);
 
         assert_eq!(decoded.ptr, node);
         assert_eq!(decoded.tag, 42);
@@ -420,13 +421,13 @@ mod tests {
         stack.push(1);
 
         let head_bits = stack.head.load(Ordering::Acquire);
-        let head = Stack::<i32>::decode(head_bits);
+        let head = TaggedPtr::<i32>::decode(head_bits);
         let tag_after_push = head.tag;
 
         let _ = stack.pop();
 
         let head_bits_after_pop = stack.head.load(Ordering::Acquire);
-        let head_after_pop = Stack::<i32>::decode(head_bits_after_pop);
+        let head_after_pop = TaggedPtr::<i32>::decode(head_bits_after_pop);
 
         assert!(head_after_pop.tag > tag_after_push);
     }
@@ -449,7 +450,7 @@ mod tests {
         }
 
         let current_head_bits = stack.head.load(Ordering::Acquire);
-        let _current_head = Stack::<i32>::decode(current_head_bits);
+        let _current_head = TaggedPtr::<i32>::decode(current_head_bits);
 
         let result = stack.head.compare_exchange(
             head_bits,
