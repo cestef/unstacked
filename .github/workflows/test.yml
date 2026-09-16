@@ -1,15 +1,137 @@
+name: test
+
 on:
-    push:
-        branches:
-            - main
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
 env:
-    CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    test:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@stable
-            - uses: taiki-e/install-action@nextest
-            - run: cargo nextest run
+  test:
+    name: test (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pin the MSRV declared in Cargo.toml so it cannot drift silently.
+        toolchain: [stable, "1.85"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --all-features
+      - run: cargo nextest run --no-default-features
+      # nextest cannot run doctests, and the README examples are doctests.
+      - run: cargo test --doc --all-features
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --all-features
+      - run: cargo clippy --all-targets --no-default-features
+
+  docs:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --no-deps --all-features
+
+  cross:
+    name: build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 32-bit: the previous tagged-pointer masks did not compile here.
+          - target: i686-unknown-linux-gnu
+            features: ""
+          - target: aarch64-unknown-linux-gnu
+            features: ""
+          # Bare metal, proves the no_std claim for real. No std to link
+          # against, so the default `std` feature has to come off.
+          - target: thumbv7em-none-eabihf
+            features: --no-default-features
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --target ${{ matrix.target }} ${{ matrix.features }}
+
+  miri:
+    name: miri (seed ${{ matrix.seed }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 2, 3]
+    env:
+      # Leaks are ignored because the hazard registry intentionally never frees
+      # its slots; see src/hazard.rs. Strict provenance is on so int-to-pointer
+      # round-trips cannot creep back in.
+      MIRIFLAGS: >-
+        -Zmiri-strict-provenance
+        -Zmiri-ignore-leaks
+        -Zmiri-preemption-rate=0.2
+        -Zmiri-seed=${{ matrix.seed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo miri test
+      - run: cargo miri test --no-default-features
+
+  sanitizers:
+    name: ${{ matrix.sanitizer }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [thread, address]
+    env:
+      RUSTFLAGS: -Z sanitizer=${{ matrix.sanitizer }} -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+      # `--tests` only: doctests are not built with the sanitizer flag, which
+      # would be an ABI mismatch, and they exercise no concurrency anyway.
+      - run: cargo test --tests -Z build-std --target x86_64-unknown-linux-gnu
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # `include` in Cargo.toml once omitted src/, which made `cargo publish`
+      # fail with "no targets specified in the manifest". Catch that here
+      # rather than on a release tag.
+      - run: cargo package --locked

@@ -1,12 +1,37 @@
+name: publish
+
 on:
-    push:
-        tags:
-          - v*
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-    publish:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@stable
-            - run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check the tag matches the manifest version
+        run: |
+          manifest="$(cargo metadata --no-deps --format-version 1 \
+            | sed -n 's/.*"name":"unstacked","version":"\([^"]*\)".*/\1/p')"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "tag $tag does not match Cargo.toml version $manifest" >&2
+            exit 1
+          fi
+
+      - run: cargo test --all-features
+      - run: cargo package --locked
+
+      - name: Publish
+        # Passed through the environment rather than as an argument so the
+        # token does not appear in the process list.
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --locked

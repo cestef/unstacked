@@ -1,10 +1,35 @@
 [package]
 name = "unstacked"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Lock-free, no-std concurrent stack for Rust"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/cestef/unstacked"
-include = ["README.md"]
-keywords = ["stack", "no-std", "concurrent"]
+documentation = "https://docs.rs/unstacked"
+keywords = ["stack", "lock-free", "concurrent", "no-std", "atomic"]
+# Not `no-std::no-alloc`: the crate is no_std but does require `alloc`.
+categories = ["concurrency", "data-structures", "no-std"]
+# `include` replaces cargo's defaults wholesale: omitting `src` here produced
+# "no targets specified in the manifest" and broke `cargo publish`.
+include = ["src/**/*.rs", "tests/**/*.rs", "README.md", "LICENSE"]
+
+[features]
+default = ["std"]
+# Caches each thread's hazard guard in thread-local storage, so a thread claims
+# a registry slot once instead of on every `pop`. Purely an optimisation: the
+# crate is fully functional with `default-features = false`.
+std = []
+
+# Single source of truth for lint levels; do not repeat these as crate-level
+# attributes in src/lib.rs.
+[lints.rust]
+missing_docs = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+doc_markdown = "warn"
