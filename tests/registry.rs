@@ -37,10 +37,14 @@ fn registry_is_bounded_by_concurrency_not_operations() {
         h.join().unwrap();
     }
 
-    // At most one slot per thread that was ever concurrently mid-operation.
+    // About one slot per thread that was ever concurrently mid-operation. Not
+    // exactly: `acquire_slot` walks the list without a snapshot, so a slot
+    // released behind the walker is missed and a new one is allocated. Miri's
+    // preemption makes that likely. A per-operation leak would still be far
+    // above this bound.
     let slots = hazard::registry_len();
     assert!(
-        slots <= THREADS,
+        slots <= 2 * THREADS,
         "{slots} slots for {THREADS} threads and {} operations",
         THREADS * ops
     );
